@@ -33,6 +33,22 @@ class Cloa_Sync_Manager {
             return new WP_Error('sync_disabled', __('Sync is disabled', 'cloa-sync'));
         }
         
+        // Validate API configuration
+        $api_key = get_option('cloa_api_key', '');
+        $api_url = get_option('cloa_api_url', '');
+        
+        if (empty($api_key)) {
+            $error_msg = __('API key is not configured. Please configure it in WooCommerce > CLOA Sync.', 'cloa-sync');
+            update_option('cloa_sync_status', $error_msg);
+            return new WP_Error('no_api_key', $error_msg);
+        }
+        
+        if (empty($api_url)) {
+            $error_msg = __('API URL is not configured. Please configure it in WooCommerce > CLOA Sync.', 'cloa-sync');
+            update_option('cloa_sync_status', $error_msg);
+            return new WP_Error('no_api_url', $error_msg);
+        }
+        
         update_option('cloa_sync_status', __('Syncing...', 'cloa-sync'));
         
         try {

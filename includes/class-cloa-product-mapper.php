@@ -50,6 +50,16 @@ class Cloa_Product_Mapper {
         // Allow other plugins to modify the mapped product
         $mapped_product = apply_filters('cloa_mapped_product', $mapped_product, $product);
         
+        // Validate the mapped product data
+        $validation_errors = $this->validate_product_data($mapped_product);
+        if (!empty($validation_errors)) {
+            $this->log_debug('Product validation failed', array(
+                'product_id' => $product->get_id(),
+                'errors' => $validation_errors,
+                'mapped_product' => $mapped_product
+            ));
+        }
+        
         return $mapped_product;
     }
     
@@ -245,6 +255,18 @@ class Cloa_Product_Mapper {
             'rating_count' => $product->get_rating_count(),
             'average_rating' => $product->get_average_rating(),
             'review_count' => $product->get_review_count(),
+            'url' => $product->get_permalink(),
+            'dateCreated' => $product->get_date_created() ? $product->get_date_created()->date('c') : null,
+            'dateModified' => $product->get_date_modified() ? $product->get_date_modified()->date('c') : null,
+            'regularPrice' => floatval($product->get_regular_price()),
+            'salePrice' => $product->get_sale_price() ? floatval($product->get_sale_price()) : null,
+            'inStock' => $product->is_in_stock(),
+            'weight' => $product->get_weight(),
+            'dimensions' => array(
+                'length' => $product->get_length(),
+                'width' => $product->get_width(),
+                'height' => $product->get_height(),
+            ),
         );
         
         // Add custom fields (if any)
@@ -264,6 +286,39 @@ class Cloa_Product_Mapper {
         return $metadata;
     }
     
+    /**
+     * Format categories for API (convert to simple string array)
+     */
+    private function format_categories_for_api($categories) {
+        $category_names = array();
+        
+        foreach ($categories as $category) {
+            if (isset($category['name'])) {
+                $category_names[] = $category['name'];
+            }
+        }
+        
+        return $category_names;
+    }
+    
+    /**
+     * Format attributes for API (convert to simple key-value pairs)
+     */
+    private function format_attributes_for_api($attributes) {
+        $formatted_attributes = array();
+        
+        foreach ($attributes as $attribute) {
+            if (isset($attribute['name']) && isset($attribute['values'])) {
+                $formatted_attributes[$attribute['name']] = is_array($attribute['values']) ? 
+                    implode(', ', $attribute['values']) : $attribute['values'];
+            }
+        }
+        
+        // Ensure we return an object (not an array) when JSON encoded
+        // PHP arrays with numeric keys become JSON arrays [], but we need objects {}
+        return empty($formatted_attributes) ? (object)array() : $formatted_attributes;
+    }
+
     /**
      * Clean product description
      */
@@ -287,5 +342,62 @@ class Cloa_Product_Mapper {
         }
         
         return $description;
+    }
+    
+    /**
+     * Validate product data against API requirements
+     */
+    private function validate_product_data($data) {
+        $errors = array();
+        
+        // Required fields
+        if (empty($data['externalId'])) {
+            $errors[] = 'externalId is required';
+        }
+        if (empty($data['name'])) {
+            $errors[] = 'name is required';
+        }
+        if (!isset($data['price']) || !is_numeric($data['price'])) {
+            $errors[] = 'price is required and must be numeric';
+        }
+        
+        // Type validation
+        if (isset($data['categories']) && !is_array($data['categories'])) {
+            $errors[] = 'categories must be an array';
+        }
+        if (isset($data['images']) && !is_array($data['images'])) {
+            $errors[] = 'images must be an array';
+        }
+        if (isset($data['attributes'])) {
+            // Attributes should be an object (associative array) or stdClass object
+            if (!is_array($data['attributes']) && !is_object($data['attributes'])) {
+                $errors[] = 'attributes must be an object';
+            } elseif (is_array($data['attributes']) && array_keys($data['attributes']) === range(0, count($data['attributes']) - 1)) {
+                // This is a numeric array, which will be encoded as JSON array [] instead of object {}
+                $errors[] = 'attributes must be an associative array (object), not a numeric array';
+            }
+        }
+        
+        // Image validation
+        if (isset($data['images']) && is_array($data['images'])) {
+            foreach ($data['images'] as $index => $image) {
+                if (!is_array($image) || empty($image['url'])) {
+                    $errors[] = "images[{$index}] must have a url field";
+                } elseif (!filter_var($image['url'], FILTER_VALIDATE_URL)) {
+                    $errors[] = "images[{$index}].url must be a valid URL";
+                }
+            }
+        }
+        
+        return $errors;
+    }
+    
+    /**
+     * Debug logging
+     */
+    private function log_debug($message, $context = array()) {
+        if (defined('WP_DEBUG') && WP_DEBUG && defined('WP_DEBUG_LOG') && WP_DEBUG_LOG) {
+            error_log('[CLOA Product Mapper] ' . $message . (empty($context) ? '' : ': ' . json_encode($context, JSON_PARTIAL_OUTPUT_ON_ERROR)));
+        }
     }
 }

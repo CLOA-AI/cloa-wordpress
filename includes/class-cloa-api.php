@@ -97,17 +97,35 @@ class Cloa_API {
         );
         
         if ($data && ($method === 'POST' || $method === 'PUT' || $method === 'PATCH')) {
-            $args['body'] = json_encode($data);
+            $args['body'] = json_encode($data, JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION);
         }
+        
+        // Add debug logging
+        $this->log_debug('Making API request', array(
+            'url' => $url,
+            'method' => $method,
+            'headers' => array_merge($args['headers'], array('X-API-Key' => substr($this->api_key, 0, 10) . '...')), // Mask API key
+            'body_size' => isset($args['body']) ? strlen($args['body']) : 0
+        ));
         
         $response = wp_remote_request($url, $args);
         
         if (is_wp_error($response)) {
+            $this->log_debug('WP Remote request failed', array(
+                'error' => $response->get_error_message()
+            ));
             return $response;
         }
         
         $response_code = wp_remote_retrieve_response_code($response);
         $response_body = wp_remote_retrieve_body($response);
+        
+        // Add debug logging for response
+        $this->log_debug('API response received', array(
+            'status_code' => $response_code,
+            'response_size' => strlen($response_body),
+            'response_preview' => substr($response_body, 0, 500) // First 500 chars
+        ));
         
         // Try to decode JSON response
         $decoded_response = json_decode($response_body, true);
@@ -117,10 +135,21 @@ class Cloa_API {
         } else {
             $error_message = __('API request failed', 'cloa-sync');
             
-            if ($decoded_response && isset($decoded_response['message'])) {
-                $error_message = $decoded_response['message'];
-            } elseif ($decoded_response && isset($decoded_response['error'])) {
-                $error_message = $decoded_response['error'];
+            // Better error message extraction
+            if ($decoded_response) {
+                if (isset($decoded_response['message'])) {
+                    $error_message = is_array($decoded_response['message']) ? 
+                        json_encode($decoded_response['message']) : $decoded_response['message'];
+                } elseif (isset($decoded_response['error'])) {
+                    $error_message = is_array($decoded_response['error']) ? 
+                        json_encode($decoded_response['error']) : $decoded_response['error'];
+                } elseif (is_array($decoded_response)) {
+                    // If entire response is an array, convert to readable format
+                    $error_message = json_encode($decoded_response, JSON_PRETTY_PRINT);
+                }
+            } elseif (!empty($response_body)) {
+                // If JSON decode failed, show raw response
+                $error_message = 'Raw response: ' . $response_body;
             }
             
             return new WP_Error('api_error', $error_message . ' (HTTP ' . $response_code . ')');
@@ -148,5 +177,14 @@ class Cloa_API {
             'api_key' => $this->api_key,
             'api_url' => $this->api_url,
         );
+    }
+    
+    /**
+     * Debug logging
+     */
+    private function log_debug($message, $context = array()) {
+        if (defined('WP_DEBUG') && WP_DEBUG && defined('WP_DEBUG_LOG') && WP_DEBUG_LOG) {
+            error_log('[CLOA API] ' . $message . (empty($context) ? '' : ': ' . json_encode($context)));
+        }
     }
 }
