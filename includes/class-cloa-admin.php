@@ -14,6 +14,7 @@ class Cloa_Admin {
         add_action('admin_init', array($this, 'register_settings'));
         add_action('wp_ajax_cloa_test_connection', array($this, 'ajax_test_connection'));
         add_action('wp_ajax_cloa_sync_now', array($this, 'ajax_sync_now'));
+        add_action('admin_notices', array($this, 'show_admin_notices'));
     }
     
     /**
@@ -350,6 +351,46 @@ class Cloa_Admin {
             wp_send_json_error(array('message' => $result->get_error_message()));
         } else {
             wp_send_json_success(array('message' => sprintf(__('Synced %d products successfully!', 'cloa-sync'), $result)));
+        }
+    }
+    
+    /**
+     * Show admin notices
+     */
+    public function show_admin_notices() {
+        // Show data cleanup notice on plugins page
+        $screen = get_current_screen();
+        if ($screen && $screen->id === 'plugins') {
+            ?>
+            <script type="text/javascript">
+            jQuery(document).ready(function($) {
+                // Add notice when user clicks delete on our plugin
+                $('tr[data-slug="cloa-sync"] .delete a').click(function() {
+                    return confirm('<?php echo esc_js(__('Deleting CLOA Product Sync will remove all sync data, settings, and scheduled tasks. This action cannot be undone. Continue?', 'cloa-sync')); ?>');
+                });
+            });
+            </script>
+            <?php
+        }
+        
+        // Show background sync progress if running
+        $progress = get_option('cloa_sync_progress', array());
+        if (!empty($progress) && $progress['status'] === 'running') {
+            $percentage = round(($progress['processed'] / $progress['total']) * 100);
+            ?>
+            <div class="notice notice-info">
+                <p>
+                    <strong><?php _e('CLOA Background Sync in Progress', 'cloa-sync'); ?></strong><br>
+                    <?php printf(__('Progress: %d%% (%d/%d products) - Started %s ago', 'cloa-sync'), 
+                        $percentage, 
+                        $progress['processed'], 
+                        $progress['total'],
+                        human_time_diff(strtotime($progress['started']), current_time('timestamp'))
+                    ); ?>
+                    <br><em><?php _e('The sync continues in the background. You can safely navigate away from this page.', 'cloa-sync'); ?></em>
+                </p>
+            </div>
+            <?php
         }
     }
 }

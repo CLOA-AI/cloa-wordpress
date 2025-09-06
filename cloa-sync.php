@@ -112,4 +112,9 @@ register_deactivation_hook(__FILE__, 'cloa_sync_deactivate');
 function cloa_sync_deactivate() {
     // Clear scheduled events
     wp_clear_scheduled_hook('cloa_sync_products');
+    wp_clear_scheduled_hook('cloa_process_sync_batch');
+    
+    // Clear any ongoing sync progress
+    delete_option('cloa_sync_progress');
+    update_option('cloa_sync_status', __('Plugin deactivated - sync stopped', 'cloa-sync'));
 }
